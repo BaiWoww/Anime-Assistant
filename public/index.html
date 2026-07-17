@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>动漫季度打分</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="logo">动漫季度打分</h1>
+      <div class="quarter-nav">
+        <button id="prevQuarter" class="icon-btn" title="上一季">‹</button>
+        <span id="quarterLabel" class="quarter-label">—</span>
+        <button id="nextQuarter" class="icon-btn" title="下一季">›</button>
+        <button id="refreshBtn" class="text-btn" title="重新获取列表">刷新</button>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <input id="searchInput" class="search" type="text" placeholder="搜索番剧名…" />
+      <button id="statsBtn" class="text-btn">统计</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="loading" class="center-state">正在获取本季度番剧列表…</div>
+    <div id="error" class="center-state error hidden"></div>
+    <div id="seasonView">
+      <div class="subnav">
+        <div class="seg">
+          <button id="tabToday" class="seg-btn active" title="当天更新的动漫">主分页 · 今日更新</button>
+          <button id="tabAll" class="seg-btn" title="本季全部，按星期几分类">副分页 · 本季全部</button>
+          <button id="tabRated" class="seg-btn" title="我评过分的番，按得分分档">已评分</button>
+        </div>
+      </div>
+      <div id="groups"></div>
+      <div id="emptySearch" class="center-state hidden">没有匹配的番剧</div>
+    </div>
+    <div id="statsView" class="hidden"></div>
+  </main>
+
+  <!-- 分集评分弹层 -->
+  <div id="modal" class="modal-overlay hidden">
+    <div class="modal">
+      <button id="modalClose" class="modal-close" title="关闭">×</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- 数据来源署名（依 CC BY-NC-SA 4.0 署名原则：注明来源、提供链接、说明改编、非商业用途） -->
+  <footer class="site-footer">
+    <span>数据来源：</span>
+    <a href="https://yuc.wiki/" target="_blank" rel="noopener">yuc.wiki</a>
+    <span class="src-note">（番剧列表 / 封面 / 话数，主要来源）</span>
+    <span class="dot">·</span>
+    <a href="https://bgm.tv/" target="_blank" rel="noopener">Bangumi</a>
+    <span class="src-note">（评分与译名补充）</span>
+    <span class="dot">·</span>
+    <span class="src-note">本站对原始数据进行了抓取与整理，依各来源许可用于非商业用途，版权归原作者所有。</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
