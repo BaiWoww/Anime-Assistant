@@ -429,13 +429,28 @@ function renderEpisodes(a) {
     list.appendChild(el("div", "ep-status", "还没有集数信息，点下方“添加一集”开始评分。"));
     return;
   }
-  for (const ep of eps) list.appendChild(renderEpRow(a, ep));
+  for (const ep of eps) {
+    list.appendChild(renderEpRow(a, ep));
+    const panel = el("div", "shot-panel hidden");
+    panel.id = `shot-${a.id}-${ep}`;
+    list.appendChild(panel);
+  }
 }
 function renderEpRow(a, ep) {
   const rec = state.ratings[`${a.id}#${ep}`];
   const row = el("div", "ep-row");
 
-  const num = el("div", "ep-num", `第${ep}集`);
+  const num = el("div", "ep-num");
+  num.appendChild(document.createTextNode(`第${ep}集`));
+  const shotBtn = el("button", "ep-shot-btn", "📷");
+  const shotCount = el("span", "shot-count", "");
+  shotBtn.appendChild(shotCount);
+  shotBtn.title = "为本集添加截图";
+  shotBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleShotPanel(a, ep, shotCount);
+  });
+  num.appendChild(shotBtn);
   row.appendChild(num);
 
   const wrap = el("div", "ep-slider-wrap");
@@ -502,6 +517,9 @@ function addEpisode(a) {
   const list = $("#epList");
   if (list.querySelector(".ep-status")) list.innerHTML = "";
   list.appendChild(renderEpRow(a, next));
+  const panel = el("div", "shot-panel hidden");
+  panel.id = `shot-${a.id}-${next}`;
+  list.appendChild(panel);
   refreshSummary(a);
 }
 function refreshSummary(a) {
@@ -519,6 +537,92 @@ function refreshSummary(a) {
 function closeModal() {
   $("#modal").classList.add("hidden");
   modalAnime = null;
+}
+
+// ---------------- per-episode screenshots ----------------
+function toggleShotPanel(a, ep, shotCount) {
+  const panel = document.getElementById(`shot-${a.id}-${ep}`);
+  if (!panel) return;
+  const hidden = panel.classList.toggle("hidden");
+  if (!hidden) loadShots(a, ep, panel, shotCount);
+}
+async function loadShots(a, ep, panel, shotCount) {
+  panel.innerHTML = "";
+  const drop = el("div", "shot-drop");
+  const input = el("input");
+  input.type = "file"; input.accept = "image/*"; input.multiple = true; input.hidden = true;
+  drop.appendChild(input);
+  drop.appendChild(el("div", "shot-tip", "点击选择截图，或将图片拖入此处"));
+  const grid = el("div", "shot-grid");
+  panel.appendChild(drop);
+  panel.appendChild(grid);
+
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    if (input.files && input.files.length) handleFiles(a, ep, input.files, panel, shotCount);
+    input.value = "";
+  });
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.add("drag"); })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.remove("drag"); })
+  );
+  drop.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)
+      handleFiles(a, ep, e.dataTransfer.files, panel, shotCount);
+  });
+
+  try {
+    const r = await fetch(`/api/screenshot?animeId=${encodeURIComponent(a.id)}&ep=${encodeURIComponent(ep)}`);
+    const j = await r.json();
+    shotCount.textContent = j.items.length ? String(j.items.length) : "";
+    for (const it of j.items) grid.appendChild(shotThumb(it, a, ep, panel, shotCount));
+  } catch {}
+}
+async function handleFiles(a, ep, files, panel, shotCount) {
+  const arr = Array.from(files).filter((f) => (f.type || "").startsWith("image/"));
+  if (!arr.length) return;
+  for (const f of arr) {
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(fr.error);
+      fr.readAsDataURL(f);
+    });
+    const base64 = String(dataUrl).split(",")[1] || "";
+    const ext = (f.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+    try {
+      await fetch("/api/screenshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ animeId: a.id, episode: ep, name: f.name, ext, data: base64 }),
+      });
+    } catch {}
+  }
+  await loadShots(a, ep, panel, shotCount);
+}
+function shotThumb(it, a, ep, panel, shotCount) {
+  const card = el("div", "shot-thumb");
+  const img = el("img");
+  img.src = it.url; img.loading = "lazy"; img.alt = it.name || "截图";
+  img.onerror = () => img.replaceWith(el("div", "shot-broken", "图"));
+  const del = el("button", "shot-del", "×");
+  del.title = "删除该截图";
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await fetch("/api/screenshot", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ animeId: a.id, episode: ep, id: it.id }),
+      });
+    } catch {}
+    await loadShots(a, ep, panel, shotCount);
+  });
+  card.appendChild(img);
+  card.appendChild(del);
+  return card;
 }
 
 // ---------------- stats ----------------

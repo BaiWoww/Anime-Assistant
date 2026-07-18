@@ -17,11 +17,13 @@ const DATA_DIR = path.join(__dirname, "data");
 const CACHE_DIR = path.join(DATA_DIR, "cache");
 const RATINGS_FILE = path.join(DATA_DIR, "ratings.json");
 const COVERS_DIR = path.join(DATA_DIR, "covers");
+const SHOTS_DIR = path.join(DATA_DIR, "screenshots");
 const PORT = process.env.PORT || 3000;
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6h
 
 fs.mkdirSync(CACHE_DIR, { recursive: true });
 fs.mkdirSync(COVERS_DIR, { recursive: true });
+fs.mkdirSync(SHOTS_DIR, { recursive: true });
 
 /* 仅允许这些域名作为封面源，防止 SSRF */
 const COVER_ALLOW = [
@@ -286,6 +288,97 @@ function deleteRating(animeId, episode) {
   writeRatings(ratings);
 }
 
+/* ----------------------------- screenshots ----------------------------- */
+/* 用户可为每一集上传截图记录；图片落在 data/screenshots/<animeId>/<ep>/ 下，
+   文件名前缀时间戳以保证列表有序，并保留原始文件名（清洗后）便于展示。 */
+const SHOT_MAX = 20 * 1024 * 1024; // 单张上限 20MB
+// 仅允许构成安全路径段的字符，杜绝路径穿越
+function safeSeg(s) {
+  return String(s).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+function shotEpDir(animeId, ep) {
+  return path.join(SHOTS_DIR, safeSeg(animeId), safeSeg(String(ep)));
+}
+function shotList(animeId, ep) {
+  const dir = shotEpDir(animeId, ep);
+  try {
+    return fs.readdirSync(dir).filter((f) => !f.startsWith(".")).sort();
+  } catch {
+    return [];
+  }
+}
+function shotUrl(animeId, ep, file) {
+  return `/api/screenshot?file=${encodeURIComponent(safeSeg(animeId))}/${encodeURIComponent(
+    safeSeg(String(ep))
+  )}/${encodeURIComponent(file)}`;
+}
+function origName(f) {
+  const base = f.replace(/\.[^.]+$/, "");
+  const i = base.indexOf("__");
+  return i >= 0 ? base.slice(i + 2) : base;
+}
+async function handleScreenshot(req, res, url) {
+  if (req.method === "GET") {
+    const file = url.searchParams.get("file");
+    if (file) {
+      const segs = file.split("/").filter(Boolean);
+      if (segs.some((s) => s === ".." || s.includes("..") || s.startsWith(".")))
+        return sendJSON(res, 400, { error: "bad path" });
+      const full = path.join(SHOTS_DIR, ...segs.map(safeSeg));
+      if (!full.startsWith(SHOTS_DIR)) return sendJSON(res, 403, { error: "forbidden" });
+      return fs.readFile(full, (err, data) => {
+        if (err) {
+          res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+          return res.end("not found");
+        }
+        const ext = path.extname(full).slice(1).toLowerCase();
+        res.writeHead(200, {
+          "Content-Type": COVER_CT[ext] || "application/octet-stream",
+          "Cache-Control": "public, max-age=86400",
+        });
+        res.end(data);
+      });
+    }
+    const animeId = url.searchParams.get("animeId");
+    const ep = url.searchParams.get("ep");
+    if (!animeId || ep == null) return sendJSON(res, 400, { error: "require animeId & ep" });
+    const items = shotList(animeId, ep).map((f) => ({ id: f, name: origName(f), url: shotUrl(animeId, ep, f) }));
+    return sendJSON(res, 200, { items });
+  }
+  if (req.method === "POST") {
+    const b = await readBody(req);
+    if (!b.animeId || b.episode == null || !b.data)
+      return sendJSON(res, 400, { error: "animeId, episode, data required" });
+    const ext = String(b.ext || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!COVER_CT[ext]) return sendJSON(res, 400, { error: "unsupported image type" });
+    let buf;
+    try {
+      buf = Buffer.from(String(b.data), "base64");
+    } catch {
+      return sendJSON(res, 400, { error: "bad data" });
+    }
+    if (buf.length > SHOT_MAX) return sendJSON(res, 413, { error: "file too large (max 20MB)" });
+    const dir = shotEpDir(b.animeId, b.episode);
+    fs.mkdirSync(dir, { recursive: true });
+    const origBase = safeSeg(String(b.name || "shot")).replace(/\.[^.]+$/, "").slice(0, 60);
+    const fname = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}__${origBase}.${ext}`;
+    fs.writeFileSync(path.join(dir, fname), buf);
+    return sendJSON(res, 200, { id: fname, url: shotUrl(b.animeId, b.episode, fname), name: origName(fname) });
+  }
+  if (req.method === "DELETE") {
+    const b = await readBody(req);
+    if (!b.animeId || b.episode == null || !b.id)
+      return sendJSON(res, 400, { error: "animeId, episode, id required" });
+    const full = path.join(SHOTS_DIR, safeSeg(b.animeId), safeSeg(String(b.episode)), safeSeg(String(b.id)));
+    if (!full.startsWith(SHOTS_DIR)) return sendJSON(res, 403, { error: "forbidden" });
+    try {
+      fs.unlinkSync(full);
+    } catch {}
+    return sendJSON(res, 200, { ok: true });
+  }
+  return sendJSON(res, 405, { error: "method not allowed" });
+}
+
 /* ----------------------------- stats ----------------------------- */
 function computeStats(groups) {
   const ratings = readRatings();
@@ -440,6 +533,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === "/api/cover") {
       return proxyCover(req, res);
+    }
+    if (p === "/api/screenshot") {
+      return handleScreenshot(req, res, url);
     }
     if (p.startsWith("/api/")) {
       return sendJSON(res, 404, { error: "not found" });
