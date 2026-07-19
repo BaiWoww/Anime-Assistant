@@ -225,15 +225,22 @@ function mergeBangumi(groups, bgmList) {
 }
 
 /* ----------------------------- cache ----------------------------- */
-function cacheGet(quarter) {
+/* 策略：stale-while-revalidate
+   - 有缓存时立即返回（毫秒级、不阻塞 UI）；若缓存超过 CACHE_TTL 则在后台静默刷新。
+   - 仅当无缓存或强制刷新（刷新按钮）时才阻塞拉取。这样每次打开都秒开，无需“每次重新拉”。 */
+function cacheRead(quarter) {
   const f = path.join(CACHE_DIR, `${quarter}.json`);
   try {
     if (fs.existsSync(f)) {
       const obj = JSON.parse(fs.readFileSync(f, "utf8"));
-      if (Date.now() - obj.ts < CACHE_TTL) return obj.data;
+      if (obj && obj.ts && obj.data) return obj;
     }
   } catch {}
   return null;
+}
+function cacheGet(quarter) {
+  const o = cacheRead(quarter);
+  return o ? o.data : null;
 }
 function cacheSet(quarter, data) {
   const f = path.join(CACHE_DIR, `${quarter}.json`);
@@ -241,12 +248,9 @@ function cacheSet(quarter, data) {
     fs.writeFileSync(f, JSON.stringify({ ts: Date.now(), data }));
   } catch {}
 }
-
-async function getSeason(quarter, force = false) {
-  if (!force) {
-    const cached = cacheGet(quarter);
-    if (cached) return { quarter, groups: cached, cached: true };
-  }
+// 记录后台刷新进行中的季度，避免同一季度短时间内重复拉取
+const refreshing = new Set();
+async function fetchSeasonFresh(quarter) {
   const url = `https://yuc.wiki/${quarter}/`;
   const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!res.ok) throw new Error(`yuc.wiki ${res.status}`);
@@ -256,8 +260,29 @@ async function getSeason(quarter, force = false) {
     const bgm = await fetchBangumi();
     groups = mergeBangumi(groups, bgm);
   } catch {}
+  return groups;
+}
+function refreshInBackground(quarter) {
+  if (refreshing.has(quarter)) return;
+  refreshing.add(quarter);
+  fetchSeasonFresh(quarter)
+    .then((groups) => {
+      cacheSet(quarter, groups);
+      console.log(`[cache] 后台刷新季度 ${quarter} 完成`);
+    })
+    .catch((e) => console.warn(`[cache] 后台刷新季度 ${quarter} 失败:`, e && e.message))
+    .finally(() => refreshing.delete(quarter));
+}
+async function getSeason(quarter, force = false) {
+  const meta = cacheRead(quarter);
+  if (!force && meta) {
+    if (Date.now() - meta.ts > CACHE_TTL) refreshInBackground(quarter);
+    return { quarter, groups: meta.data, cached: true, updatedAt: meta.ts };
+  }
+  // 无缓存或强制刷新：阻塞拉取最新数据
+  const groups = await fetchSeasonFresh(quarter);
   cacheSet(quarter, groups);
-  return { quarter, groups, cached: false };
+  return { quarter, groups, cached: false, updatedAt: Date.now() };
 }
 
 /* ----------------------------- ratings ----------------------------- */

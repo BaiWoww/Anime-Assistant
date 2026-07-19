@@ -69,7 +69,8 @@ main { max-width: 1240px; margin: 0 auto; padding: 18px; }
 }
 
 /* ---------- subnav (主/副分页切换) ---------- */
-.subnav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 16px; }
+.subnav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 16px; flex-wrap: wrap; }
+.cache-note { font-size: 11px; color: var(--muted); margin-left: auto; }
 .seg { display: inline-flex; background: #eceef1; border-radius: 10px; padding: 3px; gap: 3px; flex-wrap: wrap; }
 .seg-btn {
   border: none; background: transparent; color: #5b606b; font-size: 13px; font-weight: 600;

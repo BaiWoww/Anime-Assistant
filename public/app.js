@@ -70,6 +70,7 @@ async function loadSeason(force) {
     const data = await api(`/api/season?quarter=${state.quarter}${force ? "&force=1" : ""}`);
     state.groups = data.groups || [];
     renderList();
+    updateCacheNote(data);
   } catch (e) {
     $("#loading").classList.add("hidden");
     const err = $("#error");
@@ -79,6 +80,15 @@ async function loadSeason(force) {
     $("#loading").classList.add("hidden");
     state.loading = false;
   }
+}
+function updateCacheNote(data) {
+  const el = document.getElementById("cacheNote");
+  if (!el) return;
+  const t = data && data.updatedAt ? new Date(data.updatedAt) : null;
+  if (!t) { el.textContent = ""; return; }
+  const pad = (n) => String(n).padStart(2, "0");
+  const when = `${t.getMonth() + 1}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  el.textContent = (data.cached ? "缓存于 " : "更新于 ") + when + " · 点「刷新」获取最新";
 }
 async function loadRatings() {
   try {
